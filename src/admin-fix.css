@@ -1,0 +1,4 @@
+.admin-sidebar nav{display:grid;align-content:start;grid-template-columns:1fr;height:auto;min-height:0;flex:1;gap:4px;padding:18px 12px;overflow-y:auto;overflow-x:hidden}
+.admin-sidebar nav a{display:flex;min-width:0;width:100%;white-space:nowrap}
+.admin-sidebar{height:100vh;min-height:0}
+.admin-main{min-width:0}
