@@ -1,6 +1,59 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useStore } from './context';
 
-const removeScripts=()=>{document.getElementById('bb-google-analytics')?.remove();document.getElementById('bb-facebook-pixel')?.remove();delete window.gtag;delete window.fbq;};
-export default function MarketingIntegrations(){const{store}=useStore();const location=useLocation();const integrations=store?.settings?.integrations;useEffect(()=>{if(!integrations)return;removeScripts();const ga=integrations.googleAnalytics?.enabled?integrations.googleAnalytics.measurementId:'';if(ga){const s=document.createElement('script');s.id='bb-google-analytics';s.async=true;s.src=`https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(ga)}`;document.head.appendChild(s);window.dataLayer=window.dataLayer||[];window.gtag=(...args)=>window.dataLayer.push(args);window.gtag('js',new Date());window.gtag('config',ga,{send_page_view:false});}const pixel=integrations.facebookPixel?.enabled?integrations.facebookPixel.pixelId:'';if(pixel){const s=document.createElement('script');s.id='bb-facebook-pixel';s.text=`!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${pixel.replace(/'/g,'')}');`;document.head.appendChild(s);window.fbq?.('track','PageView');}return()=>removeScripts();},[integrations]);useEffect(()=>{if(!integrations)return;const path=`${location.pathname}${location.search}`;if(integrations.googleAnalytics?.enabled&&window.gtag)window.gtag('event','page_view',{page_path:path});if(integrations.facebookPixel?.enabled&&window.fbq)window.fbq('track','PageView');},[integrations,location.pathname,location.search]);return null;}
+const GOOGLE_SCRIPT_ID = 'bb-google-analytics';
+const FACEBOOK_SCRIPT_ID = 'bb-facebook-pixel';
+const removeFacebookPixel = () => { document.getElementById(FACEBOOK_SCRIPT_ID)?.remove(); delete window.fbq; };
+
+export default function MarketingIntegrations() {
+  const { store } = useStore();
+  const location = useLocation();
+  const integrations = store?.settings?.integrations;
+  const configuredAnalyticsId = useRef('');
+  const trackedPagePath = useRef('');
+
+  useEffect(() => {
+    if (!integrations) return undefined;
+    const analyticsId = integrations.googleAnalytics?.enabled ? integrations.googleAnalytics.measurementId : '';
+    if (analyticsId && configuredAnalyticsId.current !== analyticsId) {
+      document.getElementById(GOOGLE_SCRIPT_ID)?.remove();
+      window.dataLayer = window.dataLayer || [];
+      window.gtag = window.gtag || function gtag() { window.dataLayer.push(arguments); };
+      window.gtag('js', new Date());
+      window.gtag('config', analyticsId);
+      trackedPagePath.current = `${window.location.pathname}${window.location.search}`;
+
+      const script = document.createElement('script');
+      script.id = GOOGLE_SCRIPT_ID;
+      script.async = true;
+      script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(analyticsId)}`;
+      document.head.appendChild(script);
+      configuredAnalyticsId.current = analyticsId;
+    }
+
+    const pixelId = integrations.facebookPixel?.enabled ? integrations.facebookPixel.pixelId : '';
+    if (pixelId) {
+      removeFacebookPixel();
+      const script = document.createElement('script');
+      script.id = FACEBOOK_SCRIPT_ID;
+      script.text = `!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${pixelId.replace(/'/g, '')}');`;
+      document.head.appendChild(script);
+      window.fbq?.('track', 'PageView');
+    }
+
+    return pixelId ? removeFacebookPixel : undefined;
+  }, [integrations]);
+
+  useEffect(() => {
+    if (!integrations) return;
+    const pagePath = `${location.pathname}${location.search}`;
+    if (integrations.googleAnalytics?.enabled && window.gtag && trackedPagePath.current !== pagePath) {
+      window.gtag('event', 'page_view', { page_path: pagePath });
+      trackedPagePath.current = pagePath;
+    }
+    if (integrations.facebookPixel?.enabled && window.fbq) window.fbq('track', 'PageView');
+  }, [integrations, location.pathname, location.search]);
+
+  return null;
+}

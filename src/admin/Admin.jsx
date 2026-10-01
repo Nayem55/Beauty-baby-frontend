@@ -62,6 +62,11 @@ const nav = [
   ["Settings", "settings", Settings],
   ["Team & activity", "team", ShieldCheck],
 ];
+const roleAllows = (role, path) => {
+  if (role === 'admin') return true;
+  if (role === 'ad_manager') return path === 'settings';
+  return ['', 'products', 'bulk-edit', 'categories', 'brands', 'orders'].some((allowed) => path === allowed || (allowed && path.startsWith(`${allowed}/`)));
+};
 const labels = {
   products: "Products",
   categories: "Categories",
@@ -79,9 +84,14 @@ export default function Admin() {
   const [open, setOpen] = useState(false);
   const [checking, setChecking] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   useEffect(() => {
     if (authReady && !user) navigate("/account?next=admin", { replace: true });
   }, [authReady, user]);
+  useEffect(() => {
+    if (!user || user.role === 'customer' || roleAllows(user.role, location.pathname.replace('/admin/', '').replace('/admin', ''))) return;
+    navigate(user.role === 'ad_manager' ? '/admin/settings' : '/admin', { replace: true });
+  }, [user, location.pathname, navigate]);
   if (!authReady || !store) return <Loading />;
   if (!user) return null;
   if (user.role === "customer")
@@ -90,7 +100,7 @@ export default function Admin() {
         <ShieldCheck size={48} />
         <h1>Store access required</h1>
         <p>
-          Sign in with an owner, manager, or fulfillment account to manage
+          Sign in with an admin, store manager, or ad manager account to manage
           Beauty & baby.
         </p>
         <Link className="button" to="/account">
@@ -110,14 +120,8 @@ export default function Admin() {
         </div>
         <nav>
           {nav
-            .filter(
-              ([, , Icon]) =>
-                user.role !== "fulfillment" ||
-                ["Dashboard", "Orders"].includes(arguments[0]?.[0]),
-            )
-            .map(([label, path, Icon]) =>
-              user.role === "fulfillment" &&
-              !["Dashboard", "Orders"].includes(label) ? null : (
+            .filter(([, path]) => roleAllows(user.role, path))
+            .map(([label, path, Icon]) => (
                 <NavLink
                   end={!path}
                   key={path}
@@ -127,8 +131,7 @@ export default function Admin() {
                   <Icon size={18} />
                   <span>{label}</span>
                 </NavLink>
-              ),
-            )}
+              ))}
         </nav>
         <div className="admin-side-bottom">
           <Link to="/" target="_blank">
@@ -2130,9 +2133,9 @@ function Newsletter() {
   );
 }
 function StoreSettings() {
-  const { store, refresh } = useStore();
+  const { store, refresh, user } = useStore();
   const [v, setV] = useState(store.settings),
-    [tab, setTab] = useState("brand"),
+    [tab, setTab] = useState(user?.role === 'ad_manager' ? "integrations" : "brand"),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const set = (k, x) => setV((p) => ({ ...p, [k]: x }));
@@ -2186,7 +2189,7 @@ function StoreSettings() {
       active = false;
     };
   }, []);
-  const tabs = [
+  const tabs = user?.role === 'ad_manager' ? [["integrations", "Marketing & integrations"]] : [
     ["brand", "Brand & contact"],
     ["home", "Home content"],
     ["delivery", "Delivery & payment"],
@@ -2197,7 +2200,7 @@ function StoreSettings() {
   return (
     <form onSubmit={save}>
       <AdminTitle
-        title="Store design"
+        title={user?.role === 'ad_manager' ? "Marketing settings" : "Store design"}
         actions={
           <button className="button" disabled={busy}>
             <Save size={15} />
@@ -2205,8 +2208,7 @@ function StoreSettings() {
           </button>
         }
       >
-        Control the words, images, delivery and payment choices that appear in
-        your storefront.
+        {user?.role === 'ad_manager' ? 'Control Google Analytics and Facebook Pixel for your storefront.' : 'Control the words, images, delivery and payment choices that appear in your storefront.'}
       </AdminTitle>
       <ErrorBox>{error}</ErrorBox>
       <div className="setting-tabs">
@@ -2830,14 +2832,14 @@ function Team() {
       .catch(() => setAudit([]));
   };
   useEffect(() => {
-    if (user.role === "owner") load();
+    if (user.role === "admin") load();
   }, []);
-  if (user.role !== "owner")
+  if (user.role !== "admin")
     return (
       <div>
         <AdminTitle title="Team & activity" />
-        <Empty title="Owner access required.">
-          Only the store owner can manage staff and view store activity.
+        <Empty title="Admin access required.">
+          Only an admin can manage staff and view store activity.
         </Empty>
       </div>
     );
@@ -2884,23 +2886,8 @@ function Team() {
                       <Status value={x.active ? "active" : "inactive"} />
                     </td>
                     <td>
-                      {x.role !== "owner" && (
-                        <button
-                          className="button secondary small"
-                          onClick={async () => {
-                            try {
-                              await adminApi("/staff/" + x.id, {
-                                method: "PATCH",
-                                body: { active: !x.active, role: x.role },
-                              });
-                              load();
-                            } catch (e) {
-                              setError(e.message);
-                            }
-                          }}
-                        >
-                          {x.active ? "Disable" : "Enable"}
-                        </button>
+                      {x.id !== user.id && (
+                        <div className="row"><select value={x.role} onChange={async (e) => { try { await adminApi("/staff/" + x.id, { method: "PATCH", body: { active: x.active, role: e.target.value } }); load(); } catch (error) { setError(error.message); } }}><option value="admin">Admin</option><option value="store_manager">Store Manager</option><option value="ad_manager">Ad Manager</option></select><button className="button secondary small" onClick={async () => { try { await adminApi("/staff/" + x.id, { method: "PATCH", body: { active: !x.active, role: x.role } }); load(); } catch (e) { setError(e.message); } }}>{x.active ? "Disable" : "Enable"}</button></div>
                       )}
                     </td>
                   </tr>
@@ -2945,7 +2932,7 @@ function StaffEditor({ onClose, onSave }) {
       name: "",
       email: "",
       password: "",
-      role: "manager",
+      role: "store_manager",
     }),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
@@ -2998,10 +2985,11 @@ function StaffEditor({ onClose, onSave }) {
           onChange={change}
           options={[
             {
-              value: "manager",
-              label: "Manager — full catalog and order access",
+              value: "admin",
+              label: "Admin — full access",
             },
-            { value: "fulfillment", label: "Fulfillment — orders only" },
+            { value: "store_manager", label: "Store Manager — products, categories, brands and orders" },
+            { value: "ad_manager", label: "Ad Manager — Google Analytics and Facebook Pixel" },
           ]}
         />
         <ErrorBox>{error}</ErrorBox>
